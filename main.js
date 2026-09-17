@@ -1,4 +1,4 @@
-const { MarkdownView, Notice, Plugin } = require("obsidian");
+const { ItemView, MarkdownView, Notice, Plugin } = require("obsidian");
 
 module.exports = class ReloadFilePlugin extends Plugin {
   async onload() {
@@ -19,26 +19,24 @@ module.exports = class ReloadFilePlugin extends Plugin {
       },
     });
 
-    const addReloadButtons = () => {
-      this.app.workspace.iterateAllLeaves((leaf) => {
-        const view = leaf.view;
-        if (!(view instanceof MarkdownView)) return;
-        if (this.itemViews.has(view)) return;
+    const handleLayoutChange = () => {
+      const itemView = this.app.workspace.getActiveViewOfType(ItemView);
+      if (!(itemView instanceof MarkdownView)) return;
+      if (this.itemViews.has(itemView)) return;
 
-        this.itemViews.add(view);
-        const buttonEl = view.addAction(
-          "refresh-cw",
-          "Reload file from disk",
-          () => void this.reloadCurrentFile(view)
-        );
+      this.itemViews.add(itemView);
 
-        this.register(() => buttonEl.remove());
-      });
+      const buttonEl = itemView.addAction(
+        "refresh-cw",
+        "Reload file from disk",
+        () => void this.reloadCurrentFile(itemView)
+      );
+
+      this.register(() => buttonEl.remove());
     };
 
-    this.registerEvent(this.app.workspace.on("layout-change", addReloadButtons));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", addReloadButtons));
-    this.app.workspace.onLayoutReady(addReloadButtons);
+    this.registerEvent(this.app.workspace.on("layout-change", handleLayoutChange));
+    this.app.workspace.onLayoutReady(handleLayoutChange);
   }
 
   async reloadCurrentFile(view) {
