@@ -24,7 +24,7 @@ Then in Obsidian:
 
 ## Behavior
 
-The command reads the active Markdown file directly through Obsidian's `Vault.read()` API, replaces the current editor contents with that fresh disk copy, and restores the cursor and scroll position as closely as possible.
+The command reads the active Markdown file directly through Obsidian's low-level vault adapter, bypassing Obsidian's cached file read. It then replaces the current editor contents with that disk copy and restores the cursor and scroll position as closely as possible.
 
 Running the command intentionally discards any editor contents that differ from the version currently on disk.
 
