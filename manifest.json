@@ -1,7 +1,7 @@
 {
   "id": "reload-file",
   "name": "Reload File",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.5.0",
   "description": "Reload the currently open Markdown file from disk.",
   "author": "medialaxis",
