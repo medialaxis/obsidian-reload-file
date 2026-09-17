@@ -1,8 +1,24 @@
-const { MarkdownView, Notice, Plugin } = require("obsidian");
+const {
+  MarkdownView,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+} = require("obsidian");
+
+const DEFAULT_SETTINGS = {
+  autoReload: false,
+  autoReloadIntervalSeconds: 10,
+};
 
 module.exports = class ReloadFilePlugin extends Plugin {
   async onload() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.viewsWithButton = new WeakSet();
+    this.fileStates = new Map();
+    this.autoReloadInterval = null;
+
+    this.addSettingTab(new ReloadFileSettingTab(this.app, this));
 
     this.addCommand({
       id: "reload-current-file-from-disk",
@@ -36,11 +52,86 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     this.registerEvent(this.app.workspace.on("layout-change", attachToActiveMarkdownView));
     this.app.workspace.onLayoutReady(attachToActiveMarkdownView);
+
+    this.restartAutoReloadTimer();
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+    this.restartAutoReloadTimer();
+  }
+
+  restartAutoReloadTimer() {
+    if (this.autoReloadInterval !== null) {
+      window.clearInterval(this.autoReloadInterval);
+      this.autoReloadInterval = null;
+    }
+
+    if (!this.settings.autoReload) return;
+
+    this.autoReloadInterval = window.setInterval(
+      () => void this.checkForExternalChange(),
+      this.settings.autoReloadIntervalSeconds * 1000
+    );
+    this.registerInterval(this.autoReloadInterval);
+  }
+
+  async checkForExternalChange() {
+    if (document.hidden) return;
+
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.file) return;
+
+    const file = view.file;
+
+    try {
+      const stat = await this.app.vault.adapter.stat(file.path);
+      if (!stat) return;
+
+      const previous = this.fileStates.get(file.path);
+
+      if (!previous) {
+        const diskContents = await this.app.vault.adapter.read(file.path);
+        this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
+        return;
+      }
+
+      if (previous.mtime === stat.mtime) return;
+
+      const diskContents = await this.app.vault.adapter.read(file.path);
+
+      // Automatic reload must never discard local editor changes.
+      if (view.editor.getValue() === previous.diskContents) {
+        this.replaceEditorContents(view, diskContents);
+      }
+
+      this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
+    } catch (error) {
+      console.error("Reload File: automatic reload check failed", error);
+    }
+  }
+
+  replaceEditorContents(view, diskContents) {
+    const editor = view.editor;
+    if (editor.getValue() === diskContents) return;
+
+    const cursor = editor.getCursor();
+    const scroll = editor.getScrollInfo ? editor.getScrollInfo() : null;
+
+    editor.setValue(diskContents);
+
+    const lastLine = Math.max(0, editor.lineCount() - 1);
+    const line = Math.min(cursor.line, lastLine);
+    const ch = Math.min(cursor.ch, editor.getLine(line).length);
+    editor.setCursor({ line, ch });
+
+    if (scroll && editor.scrollTo) {
+      editor.scrollTo(scroll.left, scroll.top);
+    }
   }
 
   async reloadCurrentFile(view) {
     const file = view.file;
-    const editor = view.editor;
 
     if (!file) {
       new Notice("No active Markdown file to reload");
@@ -48,22 +139,12 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
 
     try {
-      // Read the underlying file directly, bypassing Obsidian's cached vault read.
       const diskContents = await this.app.vault.adapter.read(file.path);
+      this.replaceEditorContents(view, diskContents);
 
-      const cursor = editor.getCursor();
-      const scroll = editor.getScrollInfo ? editor.getScrollInfo() : null;
-
-      editor.setValue(diskContents);
-
-      // Restore the cursor as closely as possible.
-      const lastLine = Math.max(0, editor.lineCount() - 1);
-      const line = Math.min(cursor.line, lastLine);
-      const ch = Math.min(cursor.ch, editor.getLine(line).length);
-      editor.setCursor({ line, ch });
-
-      if (scroll && editor.scrollTo) {
-        editor.scrollTo(scroll.left, scroll.top);
+      const stat = await this.app.vault.adapter.stat(file.path);
+      if (stat) {
+        this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
       }
     } catch (error) {
       console.error("Reload File: failed to reload file from disk", error);
@@ -71,3 +152,43 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
   }
 };
+
+class ReloadFileSettingTab extends PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Automatic reload")
+      .setDesc("Periodically check the active Markdown file for external changes. Disabled by default.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoReload)
+          .onChange(async (value) => {
+            this.plugin.settings.autoReload = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Reload interval")
+      .setDesc("How often to check the active file while Obsidian is visible.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("5", "5 seconds")
+          .addOption("10", "10 seconds")
+          .addOption("30", "30 seconds")
+          .addOption("60", "60 seconds")
+          .setValue(String(this.plugin.settings.autoReloadIntervalSeconds))
+          .onChange(async (value) => {
+            this.plugin.settings.autoReloadIntervalSeconds = Number(value);
+            await this.plugin.saveSettings();
+          })
+      );
+  }
+}
