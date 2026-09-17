@@ -65,8 +65,6 @@ module.exports = class ReloadFilePlugin extends Plugin {
       if (scroll && editor.scrollTo) {
         editor.scrollTo(scroll.left, scroll.top);
       }
-
-      new Notice(`Reloaded ${file.name} from disk`);
     } catch (error) {
       console.error("Reload File: failed to reload file from disk", error);
       new Notice(`Failed to reload ${file.name} from disk`);
