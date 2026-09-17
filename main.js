@@ -1,8 +1,8 @@
-const { ItemView, MarkdownView, Notice, Plugin } = require("obsidian");
+const { MarkdownView, Notice, Plugin } = require("obsidian");
 
 module.exports = class ReloadFilePlugin extends Plugin {
   async onload() {
-    this.itemViews = new WeakSet();
+    this.viewsWithButton = new WeakSet();
 
     this.addCommand({
       id: "reload-current-file-from-disk",
@@ -19,36 +19,58 @@ module.exports = class ReloadFilePlugin extends Plugin {
       },
     });
 
-    const handleLayoutChange = () => {
-      const itemView = this.app.workspace.getActiveViewOfType(ItemView);
-      if (!itemView) return;
-      if (this.itemViews.has(itemView)) return;
+    // Diagnostic/manual fallback: this uses exactly the same addAction call as
+    // the automatic registration, but only when explicitly invoked.
+    this.addCommand({
+      id: "add-reload-button-to-current-view",
+      name: "Add reload button to current view",
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) return false;
 
-      this.itemViews.add(itemView);
-
-      const buttonEl = itemView.addAction(
-        "refresh-cw",
-        "Reload file from disk",
-        () => {
-          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-          if (!view || !view.file) {
-            new Notice("No active Markdown file to reload");
-            return;
-          }
-          void this.reloadCurrentFile(view);
+        if (!checking) {
+          const added = this.addReloadButton(view, true);
+          new Notice(added ? "Reload button added" : "Reload button already registered for this view");
         }
-      );
+        return true;
+      },
+    });
 
-      this.register(() => buttonEl.remove());
+    const attachToActiveMarkdownView = () => {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view) this.addReloadButton(view, false);
     };
 
-    this.registerEvent(this.app.workspace.on("layout-change", handleLayoutChange));
-    this.app.workspace.onLayoutReady(handleLayoutChange);
+    // Try immediately in case the layout is already available.
+    attachToActiveMarkdownView();
+
+    this.registerEvent(this.app.workspace.on("layout-change", attachToActiveMarkdownView));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", attachToActiveMarkdownView));
+    this.app.workspace.onLayoutReady(attachToActiveMarkdownView);
+  }
+
+  addReloadButton(view, force) {
+    if (!force && this.viewsWithButton.has(view)) return false;
+
+    const buttonEl = view.addAction(
+      "refresh-cw",
+      "Reload file from disk",
+      () => void this.reloadCurrentFile(view)
+    );
+
+    this.viewsWithButton.add(view);
+    this.register(() => buttonEl.remove());
+    return true;
   }
 
   async reloadCurrentFile(view) {
     const file = view.file;
     const editor = view.editor;
+
+    if (!file) {
+      new Notice("No active Markdown file to reload");
+      return;
+    }
 
     try {
       // Read the underlying file directly, bypassing Obsidian's cached vault read.
