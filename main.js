@@ -21,7 +21,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     const handleLayoutChange = () => {
       const itemView = this.app.workspace.getActiveViewOfType(ItemView);
-      if (!(itemView instanceof MarkdownView)) return;
+      if (!itemView) return;
       if (this.itemViews.has(itemView)) return;
 
       this.itemViews.add(itemView);
@@ -29,7 +29,14 @@ module.exports = class ReloadFilePlugin extends Plugin {
       const buttonEl = itemView.addAction(
         "refresh-cw",
         "Reload file from disk",
-        () => void this.reloadCurrentFile(itemView)
+        () => {
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (!view || !view.file) {
+            new Notice("No active Markdown file to reload");
+            return;
+          }
+          void this.reloadCurrentFile(view);
+        }
       );
 
       this.register(() => buttonEl.remove());
