@@ -23,11 +23,19 @@ Then in Obsidian:
 
 The plugin adds a **reload button** to the active Markdown view and also registers the command **Reload current file from disk**.
 
-## Behavior
+## Manual reload
 
 The button and command read the active Markdown file directly through Obsidian's low-level vault adapter, bypassing Obsidian's cached file read. They then replace the current editor contents with that disk copy and restore the cursor and scroll position as closely as possible.
 
-Reloading intentionally discards any editor contents that differ from the version currently on disk.
+Manual reload intentionally treats the disk copy as authoritative and can discard editor contents that differ from the version currently on disk.
+
+## Automatic reload
+
+Automatic reload is available in the plugin settings and is **disabled by default**.
+
+When enabled, the plugin periodically checks the modification time of the active Markdown file while Obsidian is visible. The interval can be set to 5, 10, 30, or 60 seconds; the default is 10 seconds.
+
+The file is only reread when its modification time changes. Automatic reload is conservative: if the editor no longer matches the last disk version observed by the plugin, the reload is skipped so local edits are not overwritten.
 
 ## Mobile support
 
