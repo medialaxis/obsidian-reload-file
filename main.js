@@ -5,6 +5,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
     this.addCommand({
       id: "reload-current-file-from-disk",
       name: "Reload current file from disk",
+      icon: "refresh-cw",
       checkCallback: (checking) => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view || !view.file) return false;
