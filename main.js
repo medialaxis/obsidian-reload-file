@@ -2,6 +2,8 @@ const { MarkdownView, Notice, Plugin } = require("obsidian");
 
 module.exports = class ReloadFilePlugin extends Plugin {
   async onload() {
+    this.itemViews = new WeakSet();
+
     this.addCommand({
       id: "reload-current-file-from-disk",
       name: "Reload current file from disk",
@@ -16,6 +18,23 @@ module.exports = class ReloadFilePlugin extends Plugin {
         return true;
       },
     });
+
+    const addReloadButton = () => {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view || this.itemViews.has(view)) return;
+
+      this.itemViews.add(view);
+      const buttonEl = view.addAction(
+        "refresh-cw",
+        "Reload file from disk",
+        () => void this.reloadCurrentFile(view)
+      );
+
+      this.register(() => buttonEl.remove());
+    };
+
+    this.registerEvent(this.app.workspace.on("layout-change", addReloadButton));
+    this.app.workspace.onLayoutReady(addReloadButton);
   }
 
   async reloadCurrentFile(view) {
