@@ -20,13 +20,14 @@ Then in Obsidian:
 2. Disable Restricted Mode if needed.
 3. Reload Obsidian.
 4. Enable **Reload File**.
-5. Add the command **Reload current file from disk** to the mobile toolbar if desired.
+
+The plugin adds a **reload button** to the active Markdown view and also registers the command **Reload current file from disk**.
 
 ## Behavior
 
-The command reads the active Markdown file directly through Obsidian's low-level vault adapter, bypassing Obsidian's cached file read. It then replaces the current editor contents with that disk copy and restores the cursor and scroll position as closely as possible.
+The button and command read the active Markdown file directly through Obsidian's low-level vault adapter, bypassing Obsidian's cached file read. They then replace the current editor contents with that disk copy and restore the cursor and scroll position as closely as possible.
 
-Running the command intentionally discards any editor contents that differ from the version currently on disk.
+Reloading intentionally discards any editor contents that differ from the version currently on disk.
 
 ## Mobile support
 
