@@ -19,29 +19,11 @@ module.exports = class ReloadFilePlugin extends Plugin {
       },
     });
 
-    // Diagnostic/manual fallback: this uses exactly the same addAction call as
-    // the automatic registration, but only when explicitly invoked.
-    this.addCommand({
-      id: "add-reload-button-to-current-view",
-      name: "Add reload button to current view",
-      checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view) return false;
-
-        if (!checking) {
-          const added = this.addReloadButton(view, true);
-          new Notice(added ? "Reload button added" : "Reload button already registered for this view");
-        }
-        return true;
-      },
-    });
-
     const attachToActiveMarkdownView = () => {
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) this.addReloadButton(view, false);
+      if (view) this.addReloadButton(view);
     };
 
-    // Try immediately in case the layout is already available.
     attachToActiveMarkdownView();
 
     this.registerEvent(this.app.workspace.on("layout-change", attachToActiveMarkdownView));
@@ -49,8 +31,8 @@ module.exports = class ReloadFilePlugin extends Plugin {
     this.app.workspace.onLayoutReady(attachToActiveMarkdownView);
   }
 
-  addReloadButton(view, force) {
-    if (!force && this.viewsWithButton.has(view)) return false;
+  addReloadButton(view) {
+    if (this.viewsWithButton.has(view)) return;
 
     const buttonEl = view.addAction(
       "refresh-cw",
@@ -60,7 +42,6 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     this.viewsWithButton.add(view);
     this.register(() => buttonEl.remove());
-    return true;
   }
 
   async reloadCurrentFile(view) {
