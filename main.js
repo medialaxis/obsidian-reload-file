@@ -19,22 +19,26 @@ module.exports = class ReloadFilePlugin extends Plugin {
       },
     });
 
-    const addReloadButton = () => {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view || this.itemViews.has(view)) return;
+    const addReloadButtons = () => {
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        const view = leaf.view;
+        if (!(view instanceof MarkdownView)) return;
+        if (this.itemViews.has(view)) return;
 
-      this.itemViews.add(view);
-      const buttonEl = view.addAction(
-        "refresh-cw",
-        "Reload file from disk",
-        () => void this.reloadCurrentFile(view)
-      );
+        this.itemViews.add(view);
+        const buttonEl = view.addAction(
+          "refresh-cw",
+          "Reload file from disk",
+          () => void this.reloadCurrentFile(view)
+        );
 
-      this.register(() => buttonEl.remove());
+        this.register(() => buttonEl.remove());
+      });
     };
 
-    this.registerEvent(this.app.workspace.on("layout-change", addReloadButton));
-    this.app.workspace.onLayoutReady(addReloadButton);
+    this.registerEvent(this.app.workspace.on("layout-change", addReloadButtons));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", addReloadButtons));
+    this.app.workspace.onLayoutReady(addReloadButtons);
   }
 
   async reloadCurrentFile(view) {
