@@ -35,6 +35,20 @@ module.exports = class ReloadFilePlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "debug-reload-state",
+      name: "Debug reload state",
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.file) return false;
+
+        if (!checking) {
+          void this.debugReloadState(view);
+        }
+        return true;
+      },
+    });
+
     const attachToActiveMarkdownView = () => {
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
       if (!view || this.viewsWithButton.has(view)) return;
@@ -151,7 +165,67 @@ module.exports = class ReloadFilePlugin extends Plugin {
       new Notice(`Failed to reload ${file.name} from disk`);
     }
   }
+
+  async debugReloadState(view) {
+    const file = view.file;
+    if (!file) return;
+
+    try {
+      const editorContents = view.editor.getValue();
+      const [adapterContents, cachedContents, adapterStat] = await Promise.all([
+        this.app.vault.adapter.read(file.path),
+        this.app.vault.cachedRead(file),
+        this.app.vault.adapter.stat(file.path),
+      ]);
+
+      const adapterType =
+        this.app.vault.adapter?.constructor?.name ?? "unknown";
+      const tracked = this.fileStates.get(file.path);
+
+      const report = [
+        "Reload File diagnostics",
+        `timestamp: ${new Date().toISOString()}`,
+        `path: ${file.path}`,
+        `adapter: ${adapterType}`,
+        `view mode: ${typeof view.getMode === "function" ? view.getMode() : "unknown"}`,
+        `TFile mtime: ${file.stat?.mtime ?? "unknown"}`,
+        `adapter mtime: ${adapterStat?.mtime ?? "unknown"}`,
+        `adapter size: ${adapterStat?.size ?? "unknown"}`,
+        `tracked mtime: ${tracked?.mtime ?? "none"}`,
+        `editor length: ${editorContents.length}`,
+        `adapter.read length: ${adapterContents.length}`,
+        `vault.cachedRead length: ${cachedContents.length}`,
+        `editor == adapter.read: ${editorContents === adapterContents}`,
+        `editor == cachedRead: ${editorContents === cachedContents}`,
+        `adapter.read == cachedRead: ${adapterContents === cachedContents}`,
+        `first diff editor/adapter: ${firstDifferenceIndex(editorContents, adapterContents)}`,
+        `first diff editor/cached: ${firstDifferenceIndex(editorContents, cachedContents)}`,
+        `first diff adapter/cached: ${firstDifferenceIndex(adapterContents, cachedContents)}`,
+      ].join("\n");
+
+      console.log("Reload File diagnostics:\n" + report);
+
+      try {
+        await navigator.clipboard.writeText(report);
+        new Notice("Reload diagnostics copied to clipboard");
+      } catch (clipboardError) {
+        console.error("Reload File: failed to copy diagnostics", clipboardError);
+        new Notice("Reload diagnostics written to console");
+      }
+    } catch (error) {
+      console.error("Reload File: failed to collect diagnostics", error);
+      new Notice("Failed to collect reload diagnostics");
+    }
+  }
 };
+
+function firstDifferenceIndex(a, b) {
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    if (a[i] !== b[i]) return i;
+  }
+  return a.length === b.length ? "none" : length;
+}
 
 class ReloadFileSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
