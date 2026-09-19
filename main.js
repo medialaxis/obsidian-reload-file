@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
 module.exports = class ReloadFilePlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    this.viewsWithButton = new WeakSet();
+    this.viewsWithButtons = new WeakSet();
     this.fileStates = new Map();
     this.autoReloadInterval = null;
 
@@ -22,7 +22,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     this.addCommand({
       id: "reload-current-file-from-disk",
-      name: "Reload current file from disk",
+      name: "Reload current file",
       icon: "refresh-cw",
       checkCallback: (checking) => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -33,6 +33,13 @@ module.exports = class ReloadFilePlugin extends Plugin {
         }
         return true;
       },
+    });
+
+    this.addCommand({
+      id: "reload-app",
+      name: "Reload app",
+      icon: "rotate-ccw",
+      callback: () => this.reloadApp(),
     });
 
     this.addCommand({
@@ -51,17 +58,24 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     const attachToActiveMarkdownView = () => {
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view || this.viewsWithButton.has(view)) return;
+      if (!view || this.viewsWithButtons.has(view)) return;
 
-      this.viewsWithButton.add(view);
+      this.viewsWithButtons.add(view);
 
-      const buttonEl = view.addAction(
+      const reloadFileButton = view.addAction(
         "refresh-cw",
-        "Reload file from disk",
+        "Reload file",
         () => void this.reloadCurrentFile(view)
       );
 
-      this.register(() => buttonEl.remove());
+      const reloadAppButton = view.addAction(
+        "rotate-ccw",
+        "Reload app",
+        () => this.reloadApp()
+      );
+
+      this.register(() => reloadFileButton.remove());
+      this.register(() => reloadAppButton.remove());
     };
 
     this.registerEvent(this.app.workspace.on("layout-change", attachToActiveMarkdownView));
@@ -125,14 +139,14 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
   }
 
-  replaceEditorContents(view, diskContents) {
+  replaceEditorContents(view, contents) {
     const editor = view.editor;
-    if (editor.getValue() === diskContents) return;
+    if (editor.getValue() === contents) return;
 
     const cursor = editor.getCursor();
     const scroll = editor.getScrollInfo ? editor.getScrollInfo() : null;
 
-    editor.setValue(diskContents);
+    editor.setValue(contents);
 
     const lastLine = Math.max(0, editor.lineCount() - 1);
     const line = Math.min(cursor.line, lastLine);
@@ -144,6 +158,32 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
   }
 
+  async readFileWithCapacitor(file) {
+    const filesystem = globalThis.Capacitor?.Plugins?.Filesystem;
+    if (!filesystem?.readFile) {
+      throw new Error("Capacitor Filesystem API is not available");
+    }
+
+    const basePath = this.app.vault.adapter?.basePath;
+    if (typeof basePath !== "string" || basePath.length === 0) {
+      throw new Error("Obsidian mobile vault basePath is not available");
+    }
+
+    const fullPath =
+      basePath.replace(/\/+$/, "") + "/" + file.path.replace(/^\/+/, "");
+
+    const result = await filesystem.readFile({
+      path: fullPath,
+      encoding: "utf8",
+    });
+
+    if (typeof result?.data !== "string") {
+      throw new Error("Capacitor Filesystem returned non-text data");
+    }
+
+    return { contents: result.data, fullPath };
+  }
+
   async reloadCurrentFile(view) {
     const file = view.file;
 
@@ -153,17 +193,16 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
 
     try {
-      const diskContents = await this.app.vault.adapter.read(file.path);
-      this.replaceEditorContents(view, diskContents);
-
-      const stat = await this.app.vault.adapter.stat(file.path);
-      if (stat) {
-        this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
-      }
+      const { contents } = await this.readFileWithCapacitor(file);
+      this.replaceEditorContents(view, contents);
     } catch (error) {
-      console.error("Reload File: failed to reload file from disk", error);
-      new Notice(`Failed to reload ${file.name} from disk`);
+      console.error("Reload File: direct Capacitor read failed", error);
+      new Notice(`Failed to reload ${file.name}`);
     }
+  }
+
+  reloadApp() {
+    this.app.commands.executeCommandById("app:reload");
   }
 
   async debugReloadState(view) {
@@ -172,11 +211,24 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     try {
       const editorContents = view.editor.getValue();
+
       const [adapterContents, cachedContents, adapterStat] = await Promise.all([
         this.app.vault.adapter.read(file.path),
         this.app.vault.cachedRead(file),
         this.app.vault.adapter.stat(file.path),
       ]);
+
+      let capacitorContents = null;
+      let capacitorPath = null;
+      let capacitorError = null;
+
+      try {
+        const directRead = await this.readFileWithCapacitor(file);
+        capacitorContents = directRead.contents;
+        capacitorPath = directRead.fullPath;
+      } catch (error) {
+        capacitorError = error instanceof Error ? error.message : String(error);
+      }
 
       const adapterType =
         this.app.vault.adapter?.constructor?.name ?? "unknown";
@@ -187,6 +239,8 @@ module.exports = class ReloadFilePlugin extends Plugin {
         `timestamp: ${new Date().toISOString()}`,
         `path: ${file.path}`,
         `adapter: ${adapterType}`,
+        `capacitor path: ${capacitorPath ?? "unavailable"}`,
+        `capacitor error: ${capacitorError ?? "none"}`,
         `view mode: ${typeof view.getMode === "function" ? view.getMode() : "unknown"}`,
         `TFile mtime: ${file.stat?.mtime ?? "unknown"}`,
         `adapter mtime: ${adapterStat?.mtime ?? "unknown"}`,
@@ -195,12 +249,17 @@ module.exports = class ReloadFilePlugin extends Plugin {
         `editor length: ${editorContents.length}`,
         `adapter.read length: ${adapterContents.length}`,
         `vault.cachedRead length: ${cachedContents.length}`,
+        `Capacitor read length: ${capacitorContents?.length ?? "unavailable"}`,
         `editor == adapter.read: ${editorContents === adapterContents}`,
         `editor == cachedRead: ${editorContents === cachedContents}`,
         `adapter.read == cachedRead: ${adapterContents === cachedContents}`,
+        `editor == Capacitor: ${capacitorContents === null ? "unavailable" : editorContents === capacitorContents}`,
+        `adapter.read == Capacitor: ${capacitorContents === null ? "unavailable" : adapterContents === capacitorContents}`,
         `first diff editor/adapter: ${firstDifferenceIndex(editorContents, adapterContents)}`,
         `first diff editor/cached: ${firstDifferenceIndex(editorContents, cachedContents)}`,
         `first diff adapter/cached: ${firstDifferenceIndex(adapterContents, cachedContents)}`,
+        `first diff editor/Capacitor: ${capacitorContents === null ? "unavailable" : firstDifferenceIndex(editorContents, capacitorContents)}`,
+        `first diff adapter/Capacitor: ${capacitorContents === null ? "unavailable" : firstDifferenceIndex(adapterContents, capacitorContents)}`,
       ].join("\n");
 
       console.log("Reload File diagnostics:\n" + report);
