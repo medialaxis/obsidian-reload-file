@@ -1,8 +1,6 @@
 # Reload File
 
-Minimal Obsidian plugin that reloads the currently open Markdown file from disk.
-
-This is intended for cases where an external sync tool such as Syncthing updates a note on disk but Obsidian keeps showing stale editor contents, especially on Android.
+Minimal Obsidian plugin for Android that provides two recovery actions when externally synced Markdown files become stale in Obsidian.
 
 ## Install manually
 
@@ -12,8 +10,6 @@ Clone or copy this repository to:
 <vault>/.obsidian/plugins/reload-file/
 ```
 
-The folder name should match the plugin id: `reload-file`.
-
 Then in Obsidian:
 
 1. Go to **Settings → Community plugins**.
@@ -21,22 +17,50 @@ Then in Obsidian:
 3. Reload Obsidian.
 4. Enable **Reload File**.
 
-The plugin adds a **reload button** to the active Markdown view and also registers the command **Reload current file from disk**.
+## Buttons
 
-## Manual reload
+The active Markdown view gets two buttons:
 
-The button and command read the active Markdown file directly through Obsidian's low-level vault adapter, bypassing Obsidian's cached file read. They then replace the current editor contents with that disk copy and restore the cursor and scroll position as closely as possible.
+- **Reload file** — reads the active Markdown file directly through Capacitor's native Filesystem API and replaces the editor contents with that copy.
+- **Reload app** — runs Obsidian's built-in `app:reload` command as a heavier fallback when the live Android/Obsidian filesystem state is stuck.
 
-Manual reload intentionally treats the disk copy as authoritative and can discard editor contents that differ from the version currently on disk.
+Matching command-palette commands are also registered:
+
+- **Reload File: Reload current file**
+- **Reload File: Reload app**
+- **Reload File: Debug reload state**
+
+Successful file reloads are silent. Errors still show a notice.
+
+## Direct Android read
+
+For **Reload file**, the plugin uses the vault adapter's Android `basePath` only to locate the current file, then reads it with:
+
+```js
+Capacitor.Plugins.Filesystem.readFile({
+  path: fullPath,
+  encoding: "utf8",
+});
+```
+
+The returned text is placed directly into the current editor. Manual reload intentionally treats that copy as authoritative.
 
 ## Automatic reload
 
-Automatic reload is available in the plugin settings and is **disabled by default**.
+Automatic reload remains optional and is **disabled by default**.
 
-When enabled, the plugin periodically checks the modification time of the active Markdown file while Obsidian is visible. The interval can be set to 5, 10, 30, or 60 seconds; the default is 10 seconds.
+When enabled, the plugin periodically checks the active Markdown file while Obsidian is visible. The interval can be set to 5, 10, 30, or 60 seconds; the default is 10 seconds.
 
-The file is only reread when its modification time changes. Automatic reload is conservative: if the editor no longer matches the last disk version observed by the plugin, the reload is skipped so local edits are not overwritten.
+Automatic reload is conservative and does not overwrite editor contents when local edits are detected.
 
-## Mobile support
+## Diagnostics
 
-The plugin uses only Obsidian APIs and no Node.js or Electron APIs, so it is intended to work on Android and iOS as well as desktop.
+**Debug reload state** compares:
+
+- current editor contents
+- Obsidian adapter read
+- Obsidian cached read
+- direct Capacitor read
+- file modification metadata
+
+The report contains lengths, equality checks, and first-difference positions, but not the note text. It is copied to the clipboard when possible.
