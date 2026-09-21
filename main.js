@@ -131,6 +131,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
       // Automatic reload must never discard local editor changes.
       if (view.editor.getValue() === previous.diskContents) {
         this.replaceEditorContents(view, diskContents);
+        this.refreshMarkdownView(view);
       }
 
       this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
@@ -155,6 +156,16 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     if (scroll && editor.scrollTo) {
       editor.scrollTo(scroll.left, scroll.top);
+    }
+  }
+
+  refreshMarkdownView(view) {
+    if (
+      typeof view.getMode === "function" &&
+      view.getMode() === "preview" &&
+      typeof view.previewMode?.rerender === "function"
+    ) {
+      view.previewMode.rerender(true);
     }
   }
 
@@ -195,6 +206,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
     try {
       const { contents } = await this.readFileWithCapacitor(file);
       this.replaceEditorContents(view, contents);
+      this.refreshMarkdownView(view);
     } catch (error) {
       console.error("Reload File: direct Capacitor read failed", error);
       new Notice(`Failed to reload ${file.name}`);
