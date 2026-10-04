@@ -21,7 +21,7 @@ Then in Obsidian:
 
 The active Markdown view gets two buttons:
 
-- **Reload file** — reads the active Markdown file directly through Capacitor's native Filesystem API, synchronizes the editor buffer, and rerenders Markdown preview when needed.
+- **Reload file** — reads the active Markdown file directly through Capacitor's native Filesystem API, updates the Markdown view data and editor buffer, and rerenders Markdown preview when needed.
 - **Reload app** — runs Obsidian's built-in `app:reload` command as a heavier fallback when the live Android/Obsidian filesystem state is stuck.
 
 Matching command-palette commands are also registered:
@@ -43,7 +43,7 @@ Capacitor.Plugins.Filesystem.readFile({
 });
 ```
 
-The returned text is placed into the current editor when it differs from the editor buffer. In Markdown preview mode, the preview is rerendered even when the editor already matches the direct file read. Manual reload intentionally treats the direct file copy as authoritative.
+The returned text is applied to the Markdown view with `setViewData()`, and the editor buffer is synchronized when needed. In Markdown preview mode, the preview is then rerendered from that updated view data. Manual reload intentionally treats the direct file copy as authoritative.
 
 ## Automatic reload
 
