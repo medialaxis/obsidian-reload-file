@@ -131,7 +131,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
       // Automatic reload must never discard local editor changes.
       if (view.editor.getValue() === previous.diskContents) {
         this.replaceEditorContents(view, diskContents);
-        this.refreshMarkdownView(view);
+        this.refreshMarkdownView(view, diskContents);
       }
 
       this.fileStates.set(file.path, { mtime: stat.mtime, diskContents });
@@ -159,7 +159,13 @@ module.exports = class ReloadFilePlugin extends Plugin {
     }
   }
 
-  refreshMarkdownView(view) {
+  refreshMarkdownView(view, contents) {
+    // Update MarkdownView's own data model. Reading-mode preview renders from
+    // this state, not directly from the CodeMirror editor buffer.
+    if (typeof view.setViewData === "function") {
+      view.setViewData(contents, false);
+    }
+
     if (
       typeof view.getMode === "function" &&
       view.getMode() === "preview" &&
@@ -206,7 +212,7 @@ module.exports = class ReloadFilePlugin extends Plugin {
     try {
       const { contents } = await this.readFileWithCapacitor(file);
       this.replaceEditorContents(view, contents);
-      this.refreshMarkdownView(view);
+      this.refreshMarkdownView(view, contents);
     } catch (error) {
       console.error("Reload File: direct Capacitor read failed", error);
       new Notice(`Failed to reload ${file.name}`);
@@ -223,6 +229,12 @@ module.exports = class ReloadFilePlugin extends Plugin {
 
     try {
       const editorContents = view.editor.getValue();
+      const viewData =
+        typeof view.getViewData === "function"
+          ? view.getViewData()
+          : typeof view.data === "string"
+            ? view.data
+            : null;
 
       const [adapterContents, cachedContents, adapterStat] = await Promise.all([
         this.app.vault.adapter.read(file.path),
@@ -259,14 +271,19 @@ module.exports = class ReloadFilePlugin extends Plugin {
         `adapter size: ${adapterStat?.size ?? "unknown"}`,
         `tracked mtime: ${tracked?.mtime ?? "none"}`,
         `editor length: ${editorContents.length}`,
+        `view data length: ${viewData?.length ?? "unavailable"}`,
         `adapter.read length: ${adapterContents.length}`,
         `vault.cachedRead length: ${cachedContents.length}`,
         `Capacitor read length: ${capacitorContents?.length ?? "unavailable"}`,
+        `editor == view data: ${viewData === null ? "unavailable" : editorContents === viewData}`,
+        `view data == Capacitor: ${viewData === null || capacitorContents === null ? "unavailable" : viewData === capacitorContents}`,
         `editor == adapter.read: ${editorContents === adapterContents}`,
         `editor == cachedRead: ${editorContents === cachedContents}`,
         `adapter.read == cachedRead: ${adapterContents === cachedContents}`,
         `editor == Capacitor: ${capacitorContents === null ? "unavailable" : editorContents === capacitorContents}`,
         `adapter.read == Capacitor: ${capacitorContents === null ? "unavailable" : adapterContents === capacitorContents}`,
+        `first diff editor/view data: ${viewData === null ? "unavailable" : firstDifferenceIndex(editorContents, viewData)}`,
+        `first diff view data/Capacitor: ${viewData === null || capacitorContents === null ? "unavailable" : firstDifferenceIndex(viewData, capacitorContents)}`,
         `first diff editor/adapter: ${firstDifferenceIndex(editorContents, adapterContents)}`,
         `first diff editor/cached: ${firstDifferenceIndex(editorContents, cachedContents)}`,
         `first diff adapter/cached: ${firstDifferenceIndex(adapterContents, cachedContents)}`,
